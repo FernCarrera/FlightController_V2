@@ -84,8 +84,10 @@ int ECHO = 4;
 long duration;
 //***************************END IMU & FILTER*****************************************
 
-//**************************TIME VARIABLES******************************************
+//**************************RUNTIME VARIABLES******************************************
 double prev_time,curr_time,elapsed_time,time_1;
+byte user_in;
+bool command = false;
 //**************************END TIME VARIABLES************************************
 
 void setup() {
@@ -132,90 +134,130 @@ void setup() {
   
   delay(7000); //give the system time to set up
   time_1 = millis();  //start clock
-
+  Serial.println("Ready For Testing. Press '1' To Start, Press '0' To Cancel: ");
+//  attachInterrupt(Serial.read(),ISR_check,CHANGE);
 }// END SETUP
 
 void loop() {
 
-  prev_time = time_1;
-  curr_time = millis();
-  elapsed_time = (curr_time - prev_time) / 1000; //ms to seconds conversion
-
-  //read ultrasonic sensor
-  digitalWrite(TRIG, LOW);
-  delayMicroseconds(5);
-  digitalWrite(TRIG, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG, LOW);
-  pinMode(ECHO, INPUT);
-  duration = pulseIn(ECHO, HIGH);
-  alt_sig = ((duration/2) * 0.0343);     // Divide by 29.1 or multiply by 0.0343
-  alt_sig = (int)alt_sig;
-
-  //read IMU
-  IMU.readSensor();
-  //get IMU values
-  accX = IMU.getAccelX_mss();
-  accY = IMU.getAccelY_mss();
-  accZ = IMU.getAccelZ_mss();
-  magX = IMU.getMagX_uT();
-  magY = IMU.getMagY_uT();
-  magZ = IMU.getMagX_uT();
-  gx = IMU.getGyroX_rads();
-  gy = IMU.getGyroY_rads();
-  gz = IMU.getGyroZ_rads();
-
-  // integrate to convert from rad/s to radian attitude
-  gx_radian = gx * elapsed_time;
-  gy_radian = gy * elapsed_time; 
-
-  // Get Euler angles from IMU
-  pitch_acc = atan2(accX, sqrt(accY*accY + accZ*accZ));
-  roll_acc = atan2(accY, sqrt(accX*accX + accZ*accZ));
-  magX = (magX*cos(pitch_acc) + magY*sin(roll_acc)*sin(pitch_acc) + magZ*cos(roll_acc)*sin(pitch_acc));
-  magY = (magY * cos(roll_acc) - magZ * sin(roll_acc));
-  yaw_sig = atan2(-magY,magX);
-  if(yaw<0){yaw = yaw + 360;}
-
-  //yaw filter
-  yaw_filter.step(0,yaw_sig);
-  yaw_sig = yaw_filter.current_state()*r2d;
-
-  //Complimentary filter
-  //pitch_sig = (1 - alpha) * (pitch_sig + gx_radian) + (alpha) * (pitch_acc);
-  //roll_sig = (1 - alpha) * (roll_sig + gy_radian) + (alpha) * (roll_acc);
-  pitch_sig = pitch_acc*r2d;
-  roll_sig = roll_acc*r2d;
-
-  //PID Calculations
-  Roll.doMath();
-  Pitch.doMath();
-  Yaw.doMath();
-  //Alt.doMath(); Need to implement ultrasonic sensor
-
-  //print tests
-  Serial.print(pitch_out);
-  Serial.print(",");
-  Serial.print(roll_out);
-  Serial.print(",");
-  Serial.println(yaw_out);
-  //Serial.print(",");
-  //Serial.println(alt_out);
-
+    //Time Calculations
+    prev_time = time_1;
+    curr_time = millis();
+    elapsed_time = (curr_time - prev_time) / 1000; //ms to seconds conversion
   
+    //get altitude reading
+    //alt_sig = getAlt();
+    
+    //get orientation
+    getState();
+  
+    //yaw filter
+    yaw_filter.step(0,yaw_sig);
+    yaw_sig = yaw_filter.current_state();
+  
+    //Complimentary filter
+    //pitch_sig = (1 - alpha) * (pitch_sig + gx_radian) + (alpha) * (pitch_acc);
+    //roll_sig = (1 - alpha) * (roll_sig + gy_radian) + (alpha) * (roll_acc);
+  
+    //PID Calculations
+    Roll.doMath();
+    Pitch.doMath();
+    Yaw.doMath();
+    //Alt.doMath(); //Need to implement ultrasonic sensor
+  
+    //print tests
+    printData();
+
+    //write to motors
+    pwmSend();
+
+}// END LOOP
+
+
+//****************************** FUNCTIONS ***************************************
+//
+//*********************************************************************************
+//
+//*********************************************************************************
+
+// reads ultrasonic sensor and returns altitude
+int getAlt(){
+    digitalWrite(TRIG, LOW);
+    delayMicroseconds(5);
+    digitalWrite(TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG, LOW);
+    pinMode(ECHO, INPUT);
+    duration = pulseIn(ECHO, HIGH);
+    alt_sig = ((duration/2) * 0.0343);     // Divide by 29.1 or multiply by 0.0343
+  
+    return (int)alt_sig;
+  
+  }
+
+//calculates orientation
+void getState(){
+  
+  //read IMU
+    IMU.readSensor();
+    //get IMU values
+    accX = IMU.getAccelX_mss();
+    accY = IMU.getAccelY_mss();
+    accZ = IMU.getAccelZ_mss();
+    magX = IMU.getMagX_uT();
+    magY = IMU.getMagY_uT();
+    magZ = IMU.getMagX_uT();
+    gx = IMU.getGyroX_rads();
+    gy = IMU.getGyroY_rads();
+    gz = IMU.getGyroZ_rads();
+    
+   // pitch_sig,roll_sig,yaw_sig,alt_sig = getState();
+    // integrate to convert from rad/s to radian attitude
+    //gx_radian = gx * elapsed_time;
+    //gy_radian = gy * elapsed_time; 
+  
+    // Get Euler angles from IMU
+    pitch_acc = atan2(accX, sqrt(accY*accY + accZ*accZ));
+    roll_acc = atan2(accY, sqrt(accX*accX + accZ*accZ));
+    magX = (magX*cos(pitch_acc) + magY*sin(roll_acc)*sin(pitch_acc) + magZ*cos(roll_acc)*sin(pitch_acc));
+    magY = (magY * cos(roll_acc) - magZ * sin(roll_acc));
+    yaw_sig = atan2(-magY,magX);
+    if(yaw_sig<0){yaw_sig = yaw_sig + 360;}
+
+    pitch_sig = pitch_acc*r2d;
+    roll_sig = roll_acc*r2d;
+    yaw_sig = yaw_sig*r2d;
+    
+  
+  }
+
+  // Prints data
+  void printData(){
+
+    Serial.print(pitch_sig);
+    Serial.print(",");
+    Serial.print(roll_sig);
+    Serial.print(",");
+    Serial.println(yaw_sig);
+    //Serial.print(",");
+    //Serial.println(alt_out);
+
+    }
 
   //CALCULATE PWM TO SEND TO MOTORS
+void pwmSend(){
   
-  alt_out = 0; //DELETE AFTER IMPLEMENT
-  pwmFR  = alt_out + roll_out - pitch_out + yaw_out;
-  pwmBR  = alt_out + roll_out + pitch_out - yaw_out;
-  pwmBL  = alt_out - roll_out + pitch_out + yaw_out;
-  pwmFL  = alt_out - roll_out - pitch_out - yaw_out;
-  
-  //WRITE TO THE MOTORS
-  RB.writeMicroseconds(pwmBR);
-  FR.writeMicroseconds(pwmFR);
-  BL.writeMicroseconds(pwmBL);
-  FL.writeMicroseconds(pwmFL);
 
-}
+    pwmFR  = alt_out + roll_out - pitch_out + yaw_out;
+    pwmBR  = alt_out + roll_out + pitch_out - yaw_out;
+    pwmBL  = alt_out - roll_out + pitch_out + yaw_out;
+    pwmFL  = alt_out - roll_out - pitch_out - yaw_out;
+
+    //WRITE TO THE MOTORS
+    RB.writeMicroseconds(pwmBR);
+    FR.writeMicroseconds(pwmFR);
+    BL.writeMicroseconds(pwmBL);
+    FL.writeMicroseconds(pwmFL);
+ 
+  
+  }
