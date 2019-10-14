@@ -7,7 +7,9 @@
 #include "math.h"
 #include <WiFiNINA.h>
 #include <SPI.h>
-
+char val[3]; // null termination
+String str;
+int value;
 // Servo declarations
 Servo RB;
 Servo FR;
@@ -35,7 +37,7 @@ double alt_sig, alt_out;
 double roll_ref = 0;
 double pitch_ref = 0;
 double yaw_ref = 0;
-double alt_ref = 152; //~5ft in cm
+double alt_ref = 2; //~6ft in m
 
 //Controller Gains
 double kp_roll = 1;
@@ -97,11 +99,17 @@ long duration;
 //***************************END IMU & FILTER*****************************************
 
 //**************************RUNTIME VARIABLES******************************************
-double prev_time,curr_time,elapsed_time,time_1;
+double prev_time,curr_time,elapsed_time;
 byte user_in;
 
 short test;
 //**************************END TIME VARIABLES************************************
+//**************************AUTONOMY CONTROL SETUP************************************
+//int throttle;
+bool vehicle_armed = false; 
+//Autoduino Auto(state,command_state,&throttle,&vehicle_armed);
+
+//**************************END AUTONOMY CONTROL SETUP************************************
 
 
 //************************** WIFI Variables **************************************
@@ -126,7 +134,7 @@ void setup() {
   Serial.begin(115200);
   while(!Serial) {}
 
-  // start communication with IMU 
+  /************COMMUNICATION WITH IMU********************************/ 
   status = IMU.begin();
   if (status < 0) {
     Serial.println("IMU initialization unsuccessful");
@@ -146,7 +154,7 @@ void setup() {
   IMU.setAccelCalX(axb,axs);
   IMU.setAccelCalY(ayb,ays);
   IMU.setAccelCalZ(azb,azs);
-
+  /************ ULTRA SONIC SENSOR********************************/ 
   //Define Ultrasonic sensor pins
   pinMode(TRIG,OUTPUT);
   pinMode(ECHO,INPUT);
@@ -165,9 +173,7 @@ void setup() {
   
   
   delay(7000); //give the system time to set up
-  time_1 = millis();  //start clock
-  Serial.println("Ready For Testing. Press '1' To Start, Press '0' To Cancel: ");
-
+  
   // check for wifi shield
   checkForShield();
   // attempt to connect to wifi network
@@ -185,52 +191,48 @@ void loop() {
       connectToWifi();
       WiFiClient client = server.available();
       wifiController(client);
-  if(test == 1){   
-      //Time Calculations
-      prev_time = time_1;
-      curr_time = millis();
-      elapsed_time = (curr_time - prev_time) / 1000; //ms to seconds conversion
-    
-      //get altitude reading
-      //alt_sig = getAlt();
-      
-      //get orientation
+      Serial.println(vehicle_armed);
+  /*Here the control system reacts to the changing reference values
+  made by the user on the server*/
+  if(vehicle_armed == true ){   
+
+      connectToWifi();
+      WiFiClient client = server.available();
+      wifiController(client);
+
+
+      Serial.println(value);
+     //get orientation
       getState();
-    
+     //get Altitude
+      getAlt();
       //yaw filter
       yaw_filter.step(0,yaw_sig);
       yaw_sig = yaw_filter.current_state();
     
-      //Complimentary filter
-      //pitch_sig = (1 - alpha) * (pitch_sig + gx_radian) + (alpha) * (pitch_acc);
-      //roll_sig = (1 - alpha) * (roll_sig + gy_radian) + (alpha) * (roll_acc);
     
       //PID Calculations
       Roll.doMath();
       Pitch.doMath();
       Yaw.doMath();
-      //Alt.doMath(); //Need to implement ultrasonic sensor
+      Alt.doMath(); 
     
       //print tests
       //printData();
   
       //write to motors
       pwmSend();
-      Serial.print(test);
-      Serial.print(",");
-      Serial.print(roll_ref);
-      Serial.print(",");
-      Serial.print(pitch_ref);
-      Serial.print(",");
-      Serial.print(yaw_ref);
-      Serial.print(",");
+      
+
+
+
       
       // close the connection:
       client.stop();
       //Serial.println("client disonnected");
   }
   // Stop Test - Stop Motors
-  else if (test==0){
+  else if (vehicle_armed==false){ //emergeny stop
     //WRITE TO THE MOTORS
     RB.writeMicroseconds(1000);
     FR.writeMicroseconds(1000);
@@ -258,7 +260,7 @@ int getAlt(){
     digitalWrite(TRIG, LOW);
     pinMode(ECHO, INPUT);
     duration = pulseIn(ECHO, HIGH);
-    alt_sig = ((duration/2) * 0.0343);     // Divide by 29.1 or multiply by 0.0343
+    alt_sig = ((duration/2) * 0.0348);     // Divide by 29.1 or multiply by 0.0343
   
     return round(alt_sig);
   
@@ -355,7 +357,7 @@ void wifiController(WiFiClient client){
     while (client.connected()) {            // loop while the client's connected
       if (client.available()) {             // if there's bytes to read from the client,
         char c = client.read();             // read a byte, then
-        Serial.write(c);                    // print it out the serial monitor
+        //Serial.write(c);                    // print it out the serial monitor
         if (c == '\n') {                    // if the byte is a newline character
 
           // if the current line is blank, you got two newline characters in a row.
@@ -384,11 +386,12 @@ void wifiController(WiFiClient client){
             client.println("<center><br><br><div class='container'><h1>Drone Orientator<h1/></div></center>");
             client.println("<center><div class='container'><left><button class='on' type='submit' value='ON' onmousedown=location.href='/H\'>ON</button>");
             client.println("<button class='off' type='submit' value='OFF' onmousedown=location.href='/L\'>OFF</button></div><br>");
-            //client.println("<form action='/action_page.php'>Pitch: <input type='number' name='fname' ><br>Roll: <input type='number' name='lname'><br><input type='submit' value='Submit'></form>");
-            client.println("<button class='Roll-45' type='submit' value='BLINK' onmousedown=location.href='/X\'>Roll-45</button></div>");
-            client.println("<button class='Pitch-45' type='submit' value='>' onmousedown=location.href='/Y\'>Pitch-45</button></div>");
-            client.println("<button class='Yaw-45' type='submit' value='<' onmousedown=location.href='/P\'>Yaw-45</button></div>");  
-            client.println("<button class='Reset' type='submit' value='RESET' onmousedown=location.href='/Q\'>RESET</button></div>");  
+            client.println("<form>class='Roll:'<input type='number' name='roll'><br><input type='submit' value='Submit'></form>");
+            client.println("<form>class='Pitch:'<input type='number' name='pitch' id='pitch' ><br><input type='submit' value='Submit\'></form>");
+            client.println("<button class='Alt' type='submit' value='BLINK' onmousedown=location.href='/X\'>Alt</button></div>");
+            client.println("<button class='Forward' type='submit' value='>' onmousedown=location.href='/Y\'>Forward</button></div>");
+            client.println("<button class='Land' type='submit' value='<' onmousedown=location.href='/P\'>Land</button></div>");  
+            client.println("<button class='Stabilize' type='submit' value='RESET' onmousedown=location.href='/Q\'>RESET</button></div>");  
             client.println("</body>");
             client.println("</html>");
 
@@ -404,33 +407,43 @@ void wifiController(WiFiClient client){
         else if (c != '\r') {    // if you got anything else but a carriage return character,
           currentLine += c;      // add it to the end of the currentLine
         }
+       
+
+        //int value = document.getElementById("").value;
 
         // Check to see if the client request was "GET /H" or "GET /L" or "GET /X":
         if (currentLine.endsWith("GET /H")) {
           // Test ON
-          test = 1;
+          vehicle_armed=true;
         }
         if (currentLine.endsWith("GET /L")) {
           // Test OFF
-          test = 0;
+          vehicle_armed=false;
         }
-         if (currentLine.endsWith("GET /P")) {
-           //Roll 45
-           roll_ref = 45;
+         if (currentLine.lastIndexOf("pitch=")>0) {
+           //Alt add a way for user to specify altitude
+           int index = currentLine.lastIndexOf("pitch=")+6;
+           int index2 = currentLine.lastIndexOf("pitch=") +7;
+            val[0] = currentLine[index];
+            val[1] = currentLine[index2];
+             //some if statement to take care of val[1]==null
+          value = (String(val[0])+String(val[1])).toInt();
+           
+          
+           //Auto.alt(3); 
         }
+       
+        
          if (currentLine.endsWith("GET /Y")) {
-          //Pitch 45
-          pitch_ref = 45;
+          //need to spefify how long it travels
+          //Auto.forward(3);
         }
         if (currentLine.endsWith("GET /X")) {
-         //yaw 45
-         yaw_ref = 45;
+         //Auto.land();
         }
         if (currentLine.endsWith("GET /Q")) {
          //reset all orientations to 0
-         roll_ref = 0;
-         pitch_ref = 0;
-         yaw_ref = 0;
+         //Auto.stabilize();
         }
 
         
