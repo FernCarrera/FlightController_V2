@@ -114,8 +114,8 @@ bool vehicle_armed = false;
 
 //************************** WIFI Variables **************************************
 
-char ssid[] = "Carrera";             //  your network SSID (name) between the " "
-char pass[] = "noisydiamond257";      // your network password between the " "
+char ssid[] = "*******";             //  your network SSID (name) between the " "
+char pass[] = "*********";      // your network password between the " "
 int keyIndex = 0;                 // your network key Index number (needed only for WEP)
 
 int status_1 = WL_IDLE_STATUS;      //connection status
